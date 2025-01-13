@@ -4,17 +4,48 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Minus, Save, Download, Trash2, CheckCircle, XCircle } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
+interface Exercise {
+  name: string;
+  type: string;
+  group: string;
+  id: number;
+  defaultSets: number;
+}
+
+interface Set {
+  weight: string;
+  reps: string;
+  rpe: string;
+}
+
+interface ExerciseWithSets extends Exercise {
+  sets: Set[];
+}
+
+interface WorkoutStatus {
+  completed: boolean;
+  completionDate: string | null;
+}
+
+type WorkoutsByDay = {
+  [key in 1 | 2 | 3 | 4]: Exercise[];
+};
+
 const WorkoutTracker = () => {
   const [selectedMesocycle, setSelectedMesocycle] = useState(1);
   const [selectedWeek, setSelectedWeek] = useState(1);
-  const [selectedDay, setSelectedDay] = useState(1);
-  const [previousWorkouts, setPreviousWorkouts] = useState({});
-  const [selectedExercises, setSelectedExercises] = useState([]);
+  const [selectedDay, setSelectedDay] = useState<1 | 2 | 3 | 4>(1);
+  const [previousWorkouts, setPreviousWorkouts] = useState<Record<string, ExerciseWithSets[]>>({});
+  const [selectedExercises, setSelectedExercises] = useState<ExerciseWithSets[]>([]);
   const [sessionTotal, setSessionTotal] = useState(0);
-  const [notification, setNotification] = useState({ show: false, message: '', type: 'success' });
-  const [workoutStatus, setWorkoutStatus] = useState({});
+  const [notification, setNotification] = useState<{ show: boolean; message: string; type: 'success' | 'error' }>({
+    show: false,
+    message: '',
+    type: 'success'
+  });
+  const [workoutStatus, setWorkoutStatus] = useState<Record<string, WorkoutStatus>>({});
 
-  const workoutsByDay = {
+  const workoutsByDay: WorkoutsByDay = {
     1: [
       { name: 'BS Low bar', type: 'Primary', group: 'Legs', id: 3, defaultSets: 3 },
       { name: 'DB-press Incline', type: 'Primary', group: 'Chest', id: 5, defaultSets: 3 },
@@ -37,8 +68,7 @@ const WorkoutTracker = () => {
       { name: 'Reverse Nordic C.', type: 'Secondary', group: 'Legs', id: 12, defaultSets: 2 },
       { name: 'Nordic C.', type: 'Secondary', group: 'Legs', id: 11, defaultSets: 2 },
       { name: 'Ab Wheel', type: 'Secondary', group: 'Abs', id: 1, defaultSets: 3 }
-    ],
-    3: [
+    ],3: [
       { name: 'BS Low bar', type: 'Primary', group: 'Legs', id: 3, defaultSets: 3 },
       { name: 'DB-press Incline', type: 'Primary', group: 'Chest', id: 5, defaultSets: 3 },
       { name: 'Latsdrag', type: 'Primary', group: 'Back', id: 10, defaultSets: 3 },
@@ -65,7 +95,6 @@ const WorkoutTracker = () => {
     ]
   };
 
-  // Initialize exercises when component mounts and when day changes
   useEffect(() => {
     const initializeExercises = () => {
       const exercisesForDay = workoutsByDay[selectedDay];
@@ -80,11 +109,11 @@ const WorkoutTracker = () => {
       if (currentWorkout) {
         setSelectedExercises(currentWorkout);
       } else {
-        const initializedExercises = exercisesForDay.map(exercise => {
+        const initializedExercises: ExerciseWithSets[] = exercisesForDay.map(exercise => {
           const prevExercise = prevWorkout?.find(e => e.id === exercise.id);
           return {
             ...exercise,
-            sets: Array(exercise.defaultSets).fill().map(() => ({
+            sets: Array(exercise.defaultSets).fill(null).map(() => ({
               weight: prevExercise?.sets[0]?.weight || '',
               reps: '',
               rpe: ''
@@ -96,9 +125,8 @@ const WorkoutTracker = () => {
     };
 
     initializeExercises();
-  }, [selectedMesocycle, selectedWeek, selectedDay, previousWorkouts, workoutsByDay]);
+  }, [selectedMesocycle, selectedWeek, selectedDay, previousWorkouts]);
 
-  // Load saved data from localStorage
   useEffect(() => {
     try {
       const savedWorkouts = localStorage.getItem('workoutHistory');
@@ -114,15 +142,14 @@ const WorkoutTracker = () => {
     }
   }, []);
 
-  // Calculate totals
   useEffect(() => {
     const total = selectedExercises.reduce((sum, exercise) => sum + exercise.sets.length, 0);
     setSessionTotal(total);
-  }, [selectedExercises]);
-
-  const updateSetData = (exerciseIndex, setIndex, field, value) => {
+  }, [selectedExercises]);const updateSetData = (exerciseIndex: number, setIndex: number, field: keyof Set, value: string) => {
     const updatedExercises = [...selectedExercises];
     const exercise = updatedExercises[exerciseIndex];
+    
+    if (!exercise) return;
     
     if (field === 'weight' && setIndex === 0) {
       exercise.sets.forEach(set => set.weight = value);
@@ -133,13 +160,15 @@ const WorkoutTracker = () => {
         }
       });
     } else {
-      exercise.sets[setIndex][field] = value;
+      if (exercise.sets[setIndex]) {
+        exercise.sets[setIndex][field] = value;
+      }
     }
     
     setSelectedExercises(updatedExercises);
   };
 
-  const isWorkoutComplete = (exercises) => {
+  const isWorkoutComplete = (exercises: ExerciseWithSets[]): boolean => {
     return exercises.every(exercise =>
       exercise.sets.every(set =>
         set.weight && set.reps && set.rpe
@@ -198,7 +227,7 @@ const WorkoutTracker = () => {
         const exercisesForDay = workoutsByDay[selectedDay];
         const initializedExercises = exercisesForDay.map(exercise => ({
           ...exercise,
-          sets: Array(exercise.defaultSets).fill().map(() => ({
+          sets: Array(exercise.defaultSets).fill(null).map(() => ({
             weight: '',
             reps: '',
             rpe: ''
@@ -207,15 +236,29 @@ const WorkoutTracker = () => {
         setSelectedExercises(initializedExercises);
       } catch (e) {
         console.error('Error clearing workout:', e);
-        setNotification({ show: true, message: 'Error clearing workout', type: 'error' });
-        setTimeout(() => setNotification({ show: false, message: '', type: 'error' }), 3000);
+        setNotification({ show: true, message: 'Error clearing workout', type: 'error' });setTimeout(() => setNotification({ show: false, message: '', type: 'error' }), 3000);
       }
     }
   };
 
   const exportToExcel = () => {
-    const workoutData = Object.entries(previousWorkouts).flatMap(([key, exercises]) => {
-      const [mesocycle, week, day] = key.split('-');
+    interface WorkoutDataRow {
+      Mesocycle: number;
+      Week: number;
+      Day: number;
+      Exercise: string;
+      'Exercise Type': string;
+      'Muscle Group': string;
+      'Set Number': number;
+      Weight: string;
+      Reps: string;
+      RPE: string;
+      Completed: string;
+      'Completion Date': string;
+    }
+
+    const workoutData: WorkoutDataRow[] = Object.entries(previousWorkouts).flatMap(([key, exercises]) => {
+      const [mesocycle, week, day] = key.split('-').map(Number);
       const status = workoutStatus[key] || { completed: false, completionDate: null };
       
       return exercises.flatMap(exercise => 
@@ -273,7 +316,7 @@ const WorkoutTracker = () => {
           <select 
             className="p-2 border rounded flex-1 text-black font-medium bg-white cursor-pointer"
             value={selectedDay}
-            onChange={(e) => setSelectedDay(Number(e.target.value))}
+            onChange={(e) => setSelectedDay(Number(e.target.value) as 1 | 2 | 3 | 4)}
           >
             {[1, 2, 3, 4].map(day => (
               <option key={day} value={day}>Day {day}</option>
@@ -283,12 +326,12 @@ const WorkoutTracker = () => {
 
         {getCurrentWorkoutStatus() && (
           <div className={`mb-4 p-4 rounded-lg flex items-center justify-between ${
-            getCurrentWorkoutStatus().completed 
+            getCurrentWorkoutStatus()?.completed 
               ? 'bg-green-100 border border-green-500' 
               : 'bg-yellow-100 border border-yellow-500'
           }`}>
             <div className="flex items-center gap-2">
-              {getCurrentWorkoutStatus().completed ? (
+              {getCurrentWorkoutStatus()?.completed ? (
                 <>
                   <CheckCircle className="w-5 h-5 text-green-600" />
                   <span className="text-green-700 font-medium">Workout Completed</span>
@@ -300,15 +343,13 @@ const WorkoutTracker = () => {
                 </>
               )}
             </div>
-            {getCurrentWorkoutStatus().completionDate && (
+            {getCurrentWorkoutStatus()?.completionDate && (
               <span className="text-gray-600">
-                Completed on: {new Date(getCurrentWorkoutStatus().completionDate).toLocaleDateString()}
+                Completed on: {new Date(getCurrentWorkoutStatus()?.completionDate as string).toLocaleDateString()}
               </span>
             )}
           </div>
-        )}
-
-        <div className="flex items-center gap-4 mb-4 p-4 bg-gray-100 rounded-lg">
+        )}<div className="flex items-center gap-4 mb-4 p-4 bg-gray-100 rounded-lg">
           <div className="flex-1">
             <div className="font-medium text-gray-700">Current Session Sets</div>
             <div className="text-2xl font-bold text-black">{sessionTotal}</div>
@@ -371,13 +412,15 @@ const WorkoutTracker = () => {
                   onClick={() => {
                     const updatedExercises = [...selectedExercises];
                     const exercise = updatedExercises[exerciseIndex];
-                    const lastSet = exercise.sets[exercise.sets.length - 1];
-                    exercise.sets.push({
-                      weight: lastSet?.weight || '',
-                      reps: '',
-                      rpe: ''
-                    });
-                    setSelectedExercises(updatedExercises);
+                    if (exercise) {
+                      const lastSet = exercise.sets[exercise.sets.length - 1];
+                      exercise.sets.push({
+                        weight: lastSet?.weight || '',
+                        reps: '',
+                        rpe: ''
+                      });
+                      setSelectedExercises(updatedExercises);
+                    }
                   }}
                   className="p-1 hover:bg-gray-100 rounded"
                 >
@@ -388,8 +431,10 @@ const WorkoutTracker = () => {
                     onClick={() => {
                       const updatedExercises = [...selectedExercises];
                       const exercise = updatedExercises[exerciseIndex];
-                      exercise.sets.pop();
-                      setSelectedExercises(updatedExercises);
+                      if (exercise) {
+                        exercise.sets.pop();
+                        setSelectedExercises(updatedExercises);
+                      }
                     }}
                     className="p-1 hover:bg-gray-100 rounded"
                   >
