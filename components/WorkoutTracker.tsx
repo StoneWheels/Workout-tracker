@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState, useEffect } from 'react';
 import { Plus, Minus, Save, Download, Trash2, CheckCircle, XCircle } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -8,7 +10,6 @@ const WorkoutTracker = () => {
   const [selectedDay, setSelectedDay] = useState(1);
   const [previousWorkouts, setPreviousWorkouts] = useState({});
   const [selectedExercises, setSelectedExercises] = useState([]);
-  const [weeklyTotals, setWeeklyTotals] = useState({});
   const [sessionTotal, setSessionTotal] = useState(0);
   const [notification, setNotification] = useState({ show: false, message: '', type: 'success' });
   const [workoutStatus, setWorkoutStatus] = useState({});
@@ -73,14 +74,12 @@ const WorkoutTracker = () => {
       const currentWorkoutKey = `${selectedMesocycle}-${selectedWeek}-${selectedDay}`;
       const prevWorkoutKey = `${selectedMesocycle}-${selectedWeek-1}-${selectedDay}`;
       
-      // Get previous week's workout data if it exists
       const prevWorkout = previousWorkouts[prevWorkoutKey];
       const currentWorkout = previousWorkouts[currentWorkoutKey];
 
       if (currentWorkout) {
         setSelectedExercises(currentWorkout);
       } else {
-        // Initialize exercises with previous week's weights if available
         const initializedExercises = exercisesForDay.map(exercise => {
           const prevExercise = prevWorkout?.find(e => e.id === exercise.id);
           return {
@@ -97,7 +96,7 @@ const WorkoutTracker = () => {
     };
 
     initializeExercises();
-  }, [selectedMesocycle, selectedWeek, selectedDay, previousWorkouts]);
+  }, [selectedMesocycle, selectedWeek, selectedDay, previousWorkouts, workoutsByDay]);
 
   // Load saved data from localStorage
   useEffect(() => {
@@ -115,7 +114,7 @@ const WorkoutTracker = () => {
     }
   }, []);
 
-  // Update totals when exercises change
+  // Calculate totals
   useEffect(() => {
     const total = selectedExercises.reduce((sum, exercise) => sum + exercise.sets.length, 0);
     setSessionTotal(total);
@@ -126,10 +125,8 @@ const WorkoutTracker = () => {
     const exercise = updatedExercises[exerciseIndex];
     
     if (field === 'weight' && setIndex === 0) {
-      // Update weight for all sets when first set is changed
       exercise.sets.forEach(set => set.weight = value);
     } else if (field === 'reps' && exercise.sets.some(set => !set.reps)) {
-      // If any sets have blank reps, copy the new rep value to all blank rep cells
       exercise.sets.forEach(set => {
         if (!set.reps) {
           set.reps = value;
@@ -198,7 +195,6 @@ const WorkoutTracker = () => {
         setNotification({ show: true, message: 'Workout cleared successfully', type: 'success' });
         setTimeout(() => setNotification({ show: false, message: '', type: 'success' }), 3000);
         
-        // Reinitialize the exercises for the current day
         const exercisesForDay = workoutsByDay[selectedDay];
         const initializedExercises = exercisesForDay.map(exercise => ({
           ...exercise,
@@ -320,10 +316,9 @@ const WorkoutTracker = () => {
           <div className="flex-1">
             <div className="font-medium text-gray-700">Week {selectedWeek} Total Sets</div>
             <div className="text-2xl font-bold text-black">
-              {Object.keys(workoutsByDay).reduce((weekTotal, day) => {
-                return weekTotal + workoutsByDay[day].reduce((dayTotal, exercise) => 
-                  dayTotal + exercise.defaultSets, 0);
-              }, 0)}
+              {Object.values(workoutsByDay).reduce((total, exercises) => 
+                total + exercises.reduce((sum, exercise) => sum + exercise.defaultSets, 0)
+              , 0)}
             </div>
           </div>
         </div>
