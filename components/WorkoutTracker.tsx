@@ -68,7 +68,8 @@ const WorkoutTracker = () => {
       { name: 'Reverse Nordic C.', type: 'Secondary', group: 'Legs', id: 12, defaultSets: 2 },
       { name: 'Nordic C.', type: 'Secondary', group: 'Legs', id: 11, defaultSets: 2 },
       { name: 'Ab Wheel', type: 'Secondary', group: 'Abs', id: 1, defaultSets: 3 }
-    ],3: [
+    ],
+    3: [
       { name: 'BS Low bar', type: 'Primary', group: 'Legs', id: 3, defaultSets: 3 },
       { name: 'DB-press Incline', type: 'Primary', group: 'Chest', id: 5, defaultSets: 3 },
       { name: 'Latsdrag', type: 'Primary', group: 'Back', id: 10, defaultSets: 3 },
@@ -145,7 +146,9 @@ const WorkoutTracker = () => {
   useEffect(() => {
     const total = selectedExercises.reduce((sum, exercise) => sum + exercise.sets.length, 0);
     setSessionTotal(total);
-  }, [selectedExercises]);const updateSetData = (exerciseIndex: number, setIndex: number, field: keyof Set, value: string) => {
+  }, [selectedExercises]);
+
+  const updateSetData = (exerciseIndex: number, setIndex: number, field: keyof Set, value: string) => {
     const updatedExercises = [...selectedExercises];
     const exercise = updatedExercises[exerciseIndex];
     
@@ -174,6 +177,36 @@ const WorkoutTracker = () => {
         set.weight && set.reps && set.rpe
       )
     );
+  };
+
+  const clearAllWorkouts = () => {
+    if (window.confirm('Are you sure you want to clear ALL workout data? This cannot be undone.')) {
+      setPreviousWorkouts({});
+      setWorkoutStatus({});
+      
+      try {
+        localStorage.removeItem('workoutHistory');
+        localStorage.removeItem('workoutStatus');
+        setNotification({ show: true, message: 'All workout data cleared successfully', type: 'success' });
+        setTimeout(() => setNotification({ show: false, message: '', type: 'success' }), 3000);
+        
+        // Reinitialize current workout
+        const exercisesForDay = workoutsByDay[selectedDay];
+        const initializedExercises = exercisesForDay.map(exercise => ({
+          ...exercise,
+          sets: Array(exercise.defaultSets).fill(null).map(() => ({
+            weight: '',
+            reps: '',
+            rpe: ''
+          }))
+        }));
+        setSelectedExercises(initializedExercises);
+      } catch (e) {
+        console.error('Error clearing all workout data:', e);
+        setNotification({ show: true, message: 'Error clearing workout data', type: 'error' });
+        setTimeout(() => setNotification({ show: false, message: '', type: 'error' }), 3000);
+      }
+    }
   };
 
   const saveWorkout = () => {
@@ -236,53 +269,144 @@ const WorkoutTracker = () => {
         setSelectedExercises(initializedExercises);
       } catch (e) {
         console.error('Error clearing workout:', e);
-        setNotification({ show: true, message: 'Error clearing workout', type: 'error' });setTimeout(() => setNotification({ show: false, message: '', type: 'error' }), 3000);
+        setNotification({ show: true, message: 'Error clearing workout', type: 'error' });
+        setTimeout(() => setNotification({ show: false, message: '', type: 'error' }), 3000);
       }
     }
   };
 
-  const exportToExcel = () => {
-    interface WorkoutDataRow {
-      Mesocycle: number;
-      Week: number;
-      Day: number;
-      Exercise: string;
-      'Exercise Type': string;
-      'Muscle Group': string;
-      'Set Number': number;
-      Weight: string;
-      Reps: string;
-      RPE: string;
-      Completed: string;
-      'Completion Date': string;
+  const exportToPowerBI = () => {
+    // Clear any existing notifications first
+    setNotification({ 
+      show: true, 
+      message: 'Preparing PowerBI export...', 
+      type: 'success' 
+    });
+    
+    // Add a confirmation dialog
+    if (!window.confirm('Export workout data to PowerBI? This will include all saved workouts.')) {
+      setNotification({ show: false, message: '', type: 'success' });
+      return;
     }
 
-    const workoutData: WorkoutDataRow[] = Object.entries(previousWorkouts).flatMap(([key, exercises]) => {
-      const [mesocycle, week, day] = key.split('-').map(Number);
-      const status = workoutStatus[key] || { completed: false, completionDate: null };
-      
-      return exercises.flatMap(exercise => 
-        exercise.sets.map((set, setIndex) => ({
-          Mesocycle: mesocycle,
-          Week: week,
-          Day: day,
-          Exercise: exercise.name,
-          'Exercise Type': exercise.type,
-          'Muscle Group': exercise.group,
-          'Set Number': setIndex + 1,
-          Weight: set.weight,
-          Reps: set.reps,
-          RPE: set.rpe,
-          Completed: status.completed ? 'Yes' : 'No',
-          'Completion Date': status.completionDate ? new Date(status.completionDate).toLocaleDateString() : ''
-        }))
-      );
-    });
+    try {
+      interface PowerBIWorkoutRow {
+        Date: string;
+        Mesocycle: number;
+        Week: number;
+        Day: number;
+        Exercise: string;
+        ExerciseType: string;
+        MuscleGroup: string;
+        SetNumber: number;
+        Weight: number;
+        Reps: number;
+        RPE: number;
+        VolumeLoad: number;
+        IsCompleted: boolean;
+        CompletionDate: string;
+        SessionID: string;
+        ExerciseOrder: number
+      }
 
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(workoutData);
-    XLSX.utils.book_append_sheet(wb, ws, "Workout Data");
-    XLSX.writeFile(wb, `workout_data_${new Date().toISOString().split('T')[0]}.xlsx`);
+      const totalWorkouts = Object.keys(previousWorkouts).length;
+
+      if (totalWorkouts === 0) {
+        setNotification({ 
+          show: true, 
+          message: 'No workout data available to export', 
+          type: 'error' 
+        });
+        setTimeout(() => setNotification({ show: false, message: '', type: 'success' }), 3000);
+        return;
+      }
+
+      const workoutData: PowerBIWorkoutRow[] = Object.entries(previousWorkouts).flatMap(([key, exercises]) => {
+        const [mesocycle, week, day] = key.split('-').map(Number);
+        const status = workoutStatus[key] || { completed: false, completionDate: null };
+        const sessionId = `${mesocycle}-${week}-${day}`;
+
+        return exercises.flatMap((exercise, exerciseIndex) => 
+          exercise.sets.map((set, setIndex) => ({
+            Date: status.completionDate || new Date().toISOString(),
+            Mesocycle: mesocycle,
+            Week: week,
+            Day: day,
+            Exercise: exercise.name,
+            ExerciseType: exercise.type,
+            MuscleGroup: exercise.group,
+            SetNumber: setIndex + 1,
+            Weight: parseFloat(set.weight) || 0,
+            Reps: parseInt(set.reps) || 0,
+            RPE: parseFloat(set.rpe) || 0,
+            VolumeLoad: (parseFloat(set.weight) || 0) * (parseInt(set.reps) || 0),
+            IsCompleted: status.completed,
+            CompletionDate: status.completionDate || '',
+            SessionID: sessionId,
+            ExerciseOrder: exerciseIndex + 1
+          }))
+        );
+      });
+
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(workoutData);
+
+      // Add column widths for better readability
+      ws['!cols'] = [
+        { wch: 10 },  // Date
+        { wch: 8 },   // Mesocycle
+        { wch: 8 },   // Week
+        { wch: 8 },   // Day
+        { wch: 20 },  // Exercise
+        { wch: 15 },  // ExerciseType
+        { wch: 15 },  // MuscleGroup
+        { wch: 8 },   // SetNumber
+        { wch: 8 },   // Weight
+        { wch: 8 },   // Reps
+        { wch: 8 },   // RPE
+        { wch: 10 },  // VolumeLoad
+        { wch: 10 },  // IsCompleted
+        { wch: 20 },  // CompletionDate
+        { wch: 20 },  // SessionID
+        { wch: 12 }   // ExerciseOrder
+      ];
+
+      // Add metadata for PowerBI
+      ws['!powerbi'] = {
+        defaultAggregation: {
+          VolumeLoad: 'SUM',
+          Weight: 'AVERAGE',
+          Reps: 'SUM',
+          RPE: 'AVERAGE'
+        }
+      };
+
+      XLSX.utils.book_append_sheet(wb, ws, "PowerBI_Workout_Data");
+
+      // Generate filename with date
+      const currentDate = new Date().toISOString().split('T')[0];
+      const filename = `workout_data_powerbi_${currentDate}.xlsx`;
+
+      // Save file
+      XLSX.writeFile(wb, filename);
+
+      // Show success notification with export details
+      setNotification({ 
+        show: true, 
+        message: `Successfully exported ${totalWorkouts} workouts to ${filename}`, 
+        type: 'success' 
+      });
+      setTimeout(() => setNotification({ show: false, message: '', type: 'success' }), 3000);
+
+    } catch (error) {
+      console.error('Error exporting to PowerBI:', error);
+      setNotification({ 
+        show: true, 
+        message: 'Error exporting workout data', 
+        type: 'error' 
+      });
+      setTimeout(() => setNotification({ show: false, message: '', type: 'error' }), 3000);
+    }
   };
 
   const getCurrentWorkoutStatus = () => {
@@ -349,7 +473,9 @@ const WorkoutTracker = () => {
               </span>
             )}
           </div>
-        )}<div className="flex items-center gap-4 mb-4 p-4 bg-gray-100 rounded-lg">
+        )}
+
+        <div className="flex items-center gap-4 mb-4 p-4 bg-gray-100 rounded-lg">
           <div className="flex-1">
             <div className="font-medium text-gray-700">Current Session Sets</div>
             <div className="text-2xl font-bold text-black">{sessionTotal}</div>
@@ -383,7 +509,7 @@ const WorkoutTracker = () => {
             Save Workout
           </button>
           <button
-            onClick={exportToExcel}
+            onClick={exportToPowerBI}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
           >
             <Download className="w-5 h-5" />
@@ -395,6 +521,13 @@ const WorkoutTracker = () => {
           >
             <Trash2 className="w-5 h-5" />
             Clear Workout
+          </button>
+          <button
+            onClick={clearAllWorkouts}
+            className="flex items-center gap-2 px-4 py-2 bg-red-800 text-white rounded hover:bg-red-900"
+          >
+            <Trash2 className="w-5 h-5" />
+            Clear All Data
           </button>
         </div>
       </div>
